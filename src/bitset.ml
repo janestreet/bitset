@@ -1,12 +1,22 @@
+[@@@ocaml.flambda_o3]
+
 open! Core
 
-module Int64 = struct
+module I64 = struct
   include Int64
 
-  let[@warning "-32"] select = Ocaml_intrinsics_kernel.Conditional.select_int64
+  module Ref = struct
+    type nonrec t = t Ref.t
+
+    let create_local t = exclave_ ref t
+
+    module O = struct
+      let ( := ) = Ref.( := )
+      let ( ! ) = Ref.( ! )
+    end
+  end
 end
 
-module I64 = Int64
 module I32 = Int32
 
 module type S_plain = Bitset_intf.S_plain
@@ -34,13 +44,13 @@ let start_of_data = 8
 (* Direct access to the words of the underlying [Bytes.t], without doing anything to
    handle the odd bits at the end. *)
 module Direct : sig
-  val unsafe_get_64 : Bytes.t -> byte_index:int -> I64.t
-  val unsafe_set_64 : Bytes.t -> byte_index:int -> I64.t -> unit
-  val unsafe_get_32 : Bytes.t -> byte_index:int -> I32.t
+  val unsafe_get_64 : local_ Bytes.t -> byte_index:int -> I64.t
+  val unsafe_set_64 : local_ Bytes.t -> byte_index:int -> I64.t -> unit
+  val unsafe_get_32 : local_ Bytes.t -> byte_index:int -> I32.t
 end = struct
-  external unsafe_get_64 : Bytes.t -> int -> int64 = "%caml_bytes_get64u"
-  external unsafe_set_64 : Bytes.t -> int -> int64 -> unit = "%caml_bytes_set64u"
-  external unsafe_get_32 : Bytes.t -> int -> int32 = "%caml_bytes_get32u"
+  external unsafe_get_64 : local_ Bytes.t -> int -> int64 = "%caml_bytes_get64u"
+  external unsafe_set_64 : local_ Bytes.t -> int -> int64 -> unit = "%caml_bytes_set64u"
+  external unsafe_get_32 : local_ Bytes.t -> int -> int32 = "%caml_bytes_get32u"
 
   (* These look like they allocate, but thanks to some compiler magic they actually
      don't. *)
@@ -71,7 +81,7 @@ let[@inline] set_bit_capacity t v =
 let[@inline] byte_index_of_bit ~bit = (bit lsr 6) lsl 3
 let[@inline] byte_index_of_word_index ~word_index = word_index lsl 3
 let[@inline] bit_index_of_word_index ~word_index = word_index lsl 6
-let[@inline] mask ~bit = I64.( lsl ) 1L (bit land 63)
+let[@inline] mask ~bit = I64.( lsl ) #1L (bit land 63)
 
 (* Describes how to iterate through a bitset.
 
@@ -88,8 +98,9 @@ end
 
 let[@inline] bounds t : Bounds.t =
   let bit_capacity = bit_capacity t in
+  exclave_
   { complete_words = bit_capacity lsr 6
-  ; last_word_bitmask = I64.(mask ~bit:bit_capacity - 1L)
+  ; last_word_bitmask = I64.(mask ~bit:bit_capacity - #1L)
   }
 ;;
 
@@ -100,11 +111,11 @@ module Masked : sig
      officially part of the bitset. You probably want to use [unsafe_set] to mutate the
      bitset, as it will automatically mask out those invalid bits on the last
      iteration. *)
-  val for_loop_end : Bounds.t -> int
+  val for_loop_end : local_ Bounds.t -> int
 
   (* Indexing out of bounds is undefined behavior. Setting into the last word
      (the one at index [complete_words]) automatically masks. *)
-  val unsafe_set : Bytes.t -> Bounds.t -> word_index:int -> I64.t -> unit
+  val unsafe_set : local_ Bytes.t -> local_ Bounds.t -> word_index:int -> I64.t -> unit
 end = struct
   (* For loops through masked values need to include one extra word at the end, to handle
      the last word bitmask. Remember that for loop bounds are inclusive... *)
@@ -113,7 +124,7 @@ end = struct
   let[@inline] unsafe_set bytes (bounds : Bounds.t) ~word_index v =
     let%tydi { complete_words; last_word_bitmask } = bounds in
     let mask =
-      I64.select (word_index < complete_words) 0xFFFF_FFFF_FFFF_FFFFL last_word_bitmask
+      I64.select (word_index < complete_words) #0xFFFF_FFFF_FFFF_FFFFL last_word_bitmask
     in
     let v = I64.(v land mask) in
     let byte_index = byte_index_of_word_index ~word_index in
@@ -124,7 +135,7 @@ end
 let rec is_empty_loop bytes ~for_loop_end ~word_index =
   let byte_index = byte_index_of_word_index ~word_index in
   let word = Direct.unsafe_get_64 bytes ~byte_index in
-  let word_empty = I64.(word = 0L) in
+  let word_empty = I64.(word = #0L) in
   if word_index = for_loop_end
   then word_empty
   else word_empty && is_empty_loop bytes ~for_loop_end ~word_index:(word_index + 1)
@@ -135,7 +146,7 @@ let[@inline] read_word_for_eq bytes (bounds : Bounds.t) ~word_index =
   let effective_index = Int.min word_index bounds.complete_words in
   let effective_byte_index = byte_index_of_word_index ~word_index:effective_index in
   Direct.unsafe_get_64 bytes ~byte_index:effective_byte_index
-  |> I64.select (word_index > bounds.complete_words) 0L
+  |> I64.select (word_index > bounds.complete_words) #0L
 ;;
 
 let rec equal_loop bytes1 bounds1 bytes2 bounds2 ~for_loop_end ~word_index =
@@ -184,7 +195,7 @@ let[@cold] invariant t =
     I64.(last_word land lnot bounds.last_word_bitmask)
   in
   (* don't allocate the Int64.t unless the check fails *)
-  if I64.(last_word_bits_outside_bitmask <> 0L)
+  if I64.(last_word_bits_outside_bitmask <> #0L)
   then [%test_result: Int64.t] I64.(to_int64 last_word_bits_outside_bitmask) ~expect:0L
 ;;
 
@@ -206,7 +217,7 @@ module T = struct
     let byte_index = byte_index_of_bit ~bit in
     let v = Direct.unsafe_get_64 t ~byte_index in
     let mask = mask ~bit in
-    I64.(v land mask <> 0L)
+    I64.(v land mask <> #0L)
   ;;
 
   let[@inline] unsafe_add t bit =
@@ -265,7 +276,7 @@ module T = struct
     let both_end = Int.min src_end dst_end in
     for index = both_end + 1 to src_end do
       let byte_index = index lsl 3 in
-      if I64.( <> ) (Direct.unsafe_get_64 src ~byte_index) 0L
+      if I64.( <> ) (Direct.unsafe_get_64 src ~byte_index) #0L
       then
         raise_s
           [%message
@@ -277,7 +288,7 @@ module T = struct
       let byte_index = byte_index_of_word_index ~word_index in
       let last_src_word = Direct.unsafe_get_64 src ~byte_index in
       let out_of_bounds_bitmask = I64.(lnot) last_word_bitmask in
-      if I64.(last_src_word land out_of_bounds_bitmask <> 0L)
+      if I64.(last_src_word land out_of_bounds_bitmask <> #0L)
       then
         raise_s
           [%message
@@ -310,7 +321,7 @@ module T = struct
     done;
     for word_index = both_end + 1 to dst_end do
       let byte_index = byte_index_of_word_index ~word_index in
-      Direct.unsafe_set_64 dst ~byte_index 0L
+      Direct.unsafe_set_64 dst ~byte_index #0L
     done;
     invariant_in_test dst
   ;;
@@ -358,8 +369,10 @@ module T = struct
 
   (* We optimize for small bitsets and minimize branching.  For large bitsets we could
      consider early exit when non-zero intersection is detected. *)
-  let is_inter_empty a b =
-    let r = ref true in
+  let[@zero_alloc] is_inter_empty a b =
+    let r = I64.Ref.create_local #0L in
+    let open I64.Ref.O in
+    let open I64.O in
     let a_complete_words = (bounds a).complete_words in
     let b_complete_words = (bounds b).complete_words in
     (* this also iterates through the word at the end, not just the complete words *)
@@ -368,10 +381,9 @@ module T = struct
       let byte_index = byte_index_of_word_index ~word_index in
       let a = Direct.unsafe_get_64 a ~byte_index in
       let b = Direct.unsafe_get_64 b ~byte_index in
-      let open Bool.Non_short_circuiting in
-      r := !r && I64.(a land b = 0L)
+      r := !r lor (a land b)
     done;
-    !r
+    !r = #0L
   ;;
 
   let num_members t =
@@ -395,14 +407,14 @@ module T = struct
     (* [i land 31] is more efficient than [i % 32] for nonnegative i; [32-i] might be
        negative but this will properly "wrap" it. *)
     let i = (32 - i) land 31 in
-    I32.( lsr ) 0xffff_ffffl i
+    I32.( lsr ) #0xffff_ffffl i
   ;;
 
   (* A mask where bit b, where bit indices are in [0, 32), is set iff b >= i % 32.
      When i % 32 = 0, returns a mask where all bits are set. *)
   let[@inline] bits_set_from i =
     let i = i land 31 (* equivalent to [% 32] for non-negative values *) in
-    I32.( lsl ) 0xffff_ffffl i
+    I32.( lsl ) #0xffff_ffffl i
   ;;
 
   let[@inline] num_members_in_word_range bytes ~start_incl ~end_excl =
@@ -435,7 +447,7 @@ module T = struct
      but the initial use case of this function was in the context of scanning only small
      ranges at a time (roughly 10 integers wide), so throughput was not the primary
      concern. *)
-  let num_members_in_range t ~start ~end_ =
+  let num_members_in_range t ~(local_ start) ~(local_ end_) =
     let bit_capacity = bit_capacity t in
     let start_incl : int =
       match start with
@@ -476,7 +488,7 @@ module T = struct
     (* mask off the extra bits at the end of the last word *)
     let bounds = bounds t in
     let word_index = bounds.complete_words in
-    Masked.unsafe_set t bounds ~word_index 0xFFFF_FFFF_FFFF_FFFFL;
+    Masked.unsafe_set t bounds ~word_index #0xFFFF_FFFF_FFFF_FFFFL;
     invariant_in_test t
   ;;
 
@@ -500,7 +512,7 @@ module T = struct
     t
   ;;
 
-  let create_local ~len:bit_capacity =
+  let create_local ~len:bit_capacity = exclave_
     let t = Bytes.create_local (bytes_len ~bit_capacity) in
     set_bit_capacity t bit_capacity;
     clear t;
@@ -533,7 +545,7 @@ module T = struct
     dst
   ;;
 
-  let copy_and_truncate_local t ~new_len =
+  let copy_and_truncate_local t ~new_len = exclave_
     let dst = create_local ~len:new_len in
     copy_and_truncate_into t ~dst;
     dst
@@ -553,11 +565,11 @@ module T = struct
       raise_s
         [%message
           "Bitset.grow_local got new_len smaller than capacity of t" (dst_len : int)];
-    copy_and_truncate_local t ~new_len:dst_len
+    exclave_ copy_and_truncate_local t ~new_len:dst_len
   ;;
 
   let copy t = copy_and_truncate t ~new_len:(bit_capacity t)
-  let copy_local t = copy_and_truncate_local t ~new_len:(bit_capacity t)
+  let copy_local t = exclave_ copy_and_truncate_local t ~new_len:(bit_capacity t)
 
   let union a b =
     let dst = copy_and_truncate a ~new_len:(Int.max (bit_capacity a) (bit_capacity b)) in
@@ -565,7 +577,7 @@ module T = struct
     dst
   ;;
 
-  let union_local a b =
+  let union_local a b = exclave_
     let dst =
       copy_and_truncate_local a ~new_len:(Int.max (bit_capacity a) (bit_capacity b))
     in
@@ -579,7 +591,7 @@ module T = struct
     dst
   ;;
 
-  let inter_local a b =
+  let inter_local a b = exclave_
     let dst =
       copy_and_truncate_local a ~new_len:(Int.min (bit_capacity a) (bit_capacity b))
     in
@@ -593,7 +605,7 @@ module T = struct
     dst
   ;;
 
-  let diff_local a b =
+  let diff_local a b = exclave_
     let dst = copy_local a in
     remove_all ~dst ~src:b;
     dst
@@ -605,7 +617,7 @@ module T = struct
     dst
   ;;
 
-  let complement_local t =
+  let complement_local t = exclave_
     let dst = copy_local t in
     complement_inplace dst;
     dst
@@ -632,20 +644,20 @@ module T = struct
     done
   ;;
 
-  let rec first_member_loop bytes (bounds : Bounds.t) ~for_loop_end ~word_index =
+  let rec first_member_loop bytes (bounds : Bounds.t) ~for_loop_end ~word_index = exclave_
     if word_index > for_loop_end
     then None
     else (
       let byte_index = byte_index_of_word_index ~word_index in
       let w = Direct.unsafe_get_64 bytes ~byte_index in
-      if I64.(w = 0L)
+      if I64.(w = #0L)
       then first_member_loop bytes bounds ~for_loop_end ~word_index:(word_index + 1)
       else (
         let bit_index = bit_index_of_word_index ~word_index in
         Some (I64.ctz w + bit_index)))
   ;;
 
-  let first_member t =
+  let first_member t = exclave_
     let bounds = bounds t in
     let for_loop_end = Masked.for_loop_end bounds in
     first_member_loop t bounds ~for_loop_end ~word_index:0
@@ -664,13 +676,13 @@ module T = struct
     Bytes.unsafe_to_string ~no_mutation_while_string_reachable:bytes
   ;;
 
-  let to_string_local t =
+  let to_string_local t = exclave_
     let bytes = Bytes.create_local (bit_capacity t) in
     into_bytes t bytes;
     Bytes.unsafe_to_string ~no_mutation_while_string_reachable:bytes
   ;;
 
-  let of_string_into t s =
+  let of_string_into t (local_ s) =
     let len = String.length s in
     for index = 0 to len - 1 do
       let open Bool.Non_short_circuiting in
@@ -697,7 +709,7 @@ module T = struct
     t
   ;;
 
-  let of_string_local s =
+  let of_string_local s = exclave_
     let len = String.length s in
     let t = create_local ~len in
     of_string_into t s;
@@ -721,6 +733,22 @@ module T = struct
     List.iter vals ~f:(fun x -> add bitset x);
     bitset
   ;;
+
+  module As_bit_array = struct
+    type nonrec t = t
+
+    let sexp_of_t t =
+      let t = Array.init (capacity t) ~f:(mem t) in
+      [%sexp (t : bool array)]
+    ;;
+
+    let t_of_sexp sexp =
+      let array = [%of_sexp: bool array] sexp in
+      let t = create ~len:(Array.length array) in
+      Array.iteri array ~f:(fun i v -> if v then add t i);
+      t
+    ;;
+  end
 end
 
 include T
@@ -729,4 +757,10 @@ module Permissioned = struct
   type nonrec -'perms t = t [@@deriving equal]
 
   include T
+
+  module As_bit_array = struct
+    include As_bit_array
+
+    type nonrec 'rw t = t [@@deriving sexp]
+  end
 end
