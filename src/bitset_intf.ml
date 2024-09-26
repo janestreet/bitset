@@ -139,10 +139,18 @@ module type S_plain = sig
   type t [@@deriving equal]
 
   include S with type 'perms t := t
+
+  module As_bit_array : sig
+    type nonrec t = t [@@deriving sexp]
+  end
 end
 
 module type S_permissioned = sig
   type -'perms t [@@deriving equal]
 
   include S with type 'perms t := 'perms t
+
+  module As_bit_array : sig
+    type nonrec 'rw t = 'rw t [@@deriving sexp]
+  end
 end

@@ -1,12 +1,24 @@
+[@@@ocaml.flambda_o3]
+
 open! Core
 
-module Int64 = struct
+module I64 = struct
   include Int64
 
-  let[@warning "-32"] select = Ocaml_intrinsics_kernel.Conditional.select_int64
+  let select = Ocaml_intrinsics_kernel.Conditional.select_int64
+
+  module Ref = struct
+    type nonrec t = t Ref.t
+
+    let create_local t = ref t
+
+    module O = struct
+      let ( := ) = Ref.( := )
+      let ( ! ) = Ref.( ! )
+    end
+  end
 end
 
-module I64 = Int64
 module I32 = Int32
 
 module type S_plain = Bitset_intf.S_plain
@@ -358,8 +370,10 @@ module T = struct
 
   (* We optimize for small bitsets and minimize branching.  For large bitsets we could
      consider early exit when non-zero intersection is detected. *)
-  let is_inter_empty a b =
-    let r = ref true in
+  let[@zero_alloc] is_inter_empty a b =
+    let r = I64.Ref.create_local 0L in
+    let open I64.Ref.O in
+    let open I64.O in
     let a_complete_words = (bounds a).complete_words in
     let b_complete_words = (bounds b).complete_words in
     (* this also iterates through the word at the end, not just the complete words *)
@@ -368,10 +382,9 @@ module T = struct
       let byte_index = byte_index_of_word_index ~word_index in
       let a = Direct.unsafe_get_64 a ~byte_index in
       let b = Direct.unsafe_get_64 b ~byte_index in
-      let open Bool.Non_short_circuiting in
-      r := !r && I64.(a land b = 0L)
+      r := !r lor (a land b)
     done;
-    !r
+    !r = 0L
   ;;
 
   let num_members t =
@@ -721,6 +734,22 @@ module T = struct
     List.iter vals ~f:(fun x -> add bitset x);
     bitset
   ;;
+
+  module As_bit_array = struct
+    type nonrec t = t
+
+    let sexp_of_t t =
+      let t = Array.init (capacity t) ~f:(mem t) in
+      [%sexp (t : bool array)]
+    ;;
+
+    let t_of_sexp sexp =
+      let array = [%of_sexp: bool array] sexp in
+      let t = create ~len:(Array.length array) in
+      Array.iteri array ~f:(fun i v -> if v then add t i);
+      t
+    ;;
+  end
 end
 
 include T
@@ -729,4 +758,10 @@ module Permissioned = struct
   type nonrec -'perms t = t [@@deriving equal]
 
   include T
+
+  module As_bit_array = struct
+    include As_bit_array
+
+    type nonrec 'rw t = t [@@deriving sexp]
+  end
 end
