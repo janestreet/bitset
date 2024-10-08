@@ -161,7 +161,7 @@ let rec equal_loop bytes1 bounds1 bytes2 bounds2 ~for_loop_end ~word_index =
     && equal_loop bytes1 bounds1 bytes2 bounds2 ~for_loop_end ~word_index:(word_index + 1)
 ;;
 
-let equal t1 t2 =
+let equal__local t1 t2 =
   let t1_bounds = bounds t1 in
   let t2_bounds = bounds t2 in
   (* [read_word_for_eq] return 0 if accessing out of bounds, so walking through the max of
@@ -172,6 +172,35 @@ let equal t1 t2 =
   in
   equal_loop t1 t1_bounds t2 t2_bounds ~for_loop_end ~word_index:0 [@nontail]
 ;;
+
+let equal t1 t2 = equal__local t1 t2
+
+let rec compare_loop bytes1 bounds1 bytes2 bounds2 ~for_loop_end ~word_index =
+  let word1 = read_word_for_eq bytes1 bounds1 ~word_index in
+  let word2 = read_word_for_eq bytes2 bounds2 ~word_index in
+  let word_eq = I64.equal word1 word2 in
+  if word_eq
+  then
+    if word_index = for_loop_end
+    then 0
+    else
+      compare_loop bytes1 bounds1 bytes2 bounds2 ~for_loop_end ~word_index:(word_index + 1)
+  else I64.compare word1 word2
+;;
+
+let compare__local t1 t2 =
+  let t1_bounds = bounds t1 in
+  let t2_bounds = bounds t2 in
+  (* [read_word_for_eq] return 0 if accessing out of bounds, so walking through the max of
+     the two sets has the semantics we want here. Those semantics being: pretend both
+     bitsets are infinite length and any data beyond the true length is 0. *)
+  let for_loop_end =
+    Int.max (Masked.for_loop_end t1_bounds) (Masked.for_loop_end t2_bounds)
+  in
+  compare_loop t1 t1_bounds t2 t2_bounds ~for_loop_end ~word_index:0 [@nontail]
+;;
+
+let compare t1 t2 = compare__local t1 t2
 
 let[@cold] invariant t =
   let byte_len = Bytes.length t - 8 in
@@ -360,6 +389,36 @@ module T = struct
     let last_v = I64.(lnot last_v land last_word_bitmask) in
     Direct.unsafe_set_64 t ~byte_index last_v;
     invariant_in_test t
+  ;;
+
+  let rec is_subset_loop bytes1 bounds1 bytes2 bounds2 ~for_loop_end ~word_index =
+    let word1 = read_word_for_eq bytes1 bounds1 ~word_index in
+    let word2 = read_word_for_eq bytes2 bounds2 ~word_index in
+    (* A subset_of B  <->  A intersect B = A *)
+    let word_is_subset = I64.(word1 land lnot word2 = 0L) in
+    if word_index = for_loop_end
+    then word_is_subset
+    else
+      word_is_subset
+      && is_subset_loop
+           bytes1
+           bounds1
+           bytes2
+           bounds2
+           ~for_loop_end
+           ~word_index:(word_index + 1)
+  ;;
+
+  let is_subset t1 ~of_:t2 =
+    let t1_bounds = bounds t1 in
+    let t2_bounds = bounds t2 in
+    (* [read_word_for_eq] return 0 if accessing out of bounds, so walking through the max
+       of the two sets has the semantics we want here. Those semantics being: pretend both
+       bitsets are infinite length and any data beyond the true length is 0. *)
+    let for_loop_end =
+      Int.max (Masked.for_loop_end t1_bounds) (Masked.for_loop_end t2_bounds)
+    in
+    is_subset_loop t1 t1_bounds t2 t2_bounds ~for_loop_end ~word_index:0 [@nontail]
   ;;
 
   let is_empty t =
@@ -755,7 +814,7 @@ end
 include T
 
 module Permissioned = struct
-  type nonrec -'perms t = t [@@deriving equal]
+  type nonrec -'perms t = t [@@deriving equal ~localize, compare ~localize]
 
   include T
 
