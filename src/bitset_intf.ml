@@ -84,6 +84,9 @@ module type S = sig
   val complement_local : local_ [> read ] t -> local_ [< read_write ] t
   val complement_inplace : local_ [> read_write ] t -> unit
 
+  (** [is_subset t1 ~of_:t2] returns true iff [t1] is a subset of [t2]. *)
+  val is_subset : local_ [> read ] t -> of_:local_ [> read ] t -> bool
+
   (** returns the number of members -- values of [i] for which [mem t i] is true *)
   val num_members : local_ [> read ] t -> int
 
@@ -140,7 +143,7 @@ module type S = sig
 end
 
 module type S_plain = sig
-  type t [@@deriving equal]
+  type t [@@deriving compare ~localize, equal ~localize]
 
   include S with type 'perms t := t
 
@@ -150,7 +153,7 @@ module type S_plain = sig
 end
 
 module type S_permissioned = sig
-  type -'perms t [@@deriving equal]
+  type -'perms t [@@deriving compare ~localize, equal ~localize]
 
   include S with type 'perms t := 'perms t
 

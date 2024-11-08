@@ -4,3 +4,9 @@
  (libraries core ocaml_intrinsics_kernel)
  (preprocess
   (pps ppx_jane)))
+
+(rule
+ (targets ocamlopt-flags)
+ (deps)
+ (action
+  (bash "echo '()' > ocamlopt-flags")))
