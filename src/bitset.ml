@@ -202,7 +202,7 @@ let compare__local t1 t2 =
 
 let compare t1 t2 = compare__local t1 t2
 
-let[@cold] invariant t =
+let[@cold] [@zero_alloc assume] invariant t =
   let byte_len = Bytes.length t - 8 in
   let required_bytes = (bit_capacity t + 8 - 1) / 8 in
   if byte_len < required_bytes
