@@ -14,7 +14,7 @@ depends: [
   "core"
   "ocaml_intrinsics_kernel"
   "ppx_jane"
-  "dune"                    {>= "3.11.0"}
+  "dune"                    {>= "3.17.0"}
 ]
 available: arch != "arm32" & arch != "x86_32"
 synopsis: "A library for flat bitsets"
