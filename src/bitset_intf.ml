@@ -14,14 +14,17 @@ module type S = sig
 
   (** [is_empty t] returns [true] iff [mem t i] returns false on every [i] *)
   val is_empty : [> read ] t -> bool
+  [@@zero_alloc]
 
   (** [add t i] adds [i] to the set. *)
   val add : [> write ] t -> int -> unit
+  [@@zero_alloc]
 
   val unsafe_add : [> write ] t -> int -> unit
 
   (** [remove t i] removes [i] from set. *)
   val remove : [> write ] t -> int -> unit
+  [@@zero_alloc]
 
   val unsafe_remove : [> write ] t -> int -> unit
 
@@ -32,8 +35,9 @@ module type S = sig
 
   (** [mem t i] returns [true] iff [i] is in [t]. *)
   val mem : [> read ] t -> int -> bool
+  [@@zero_alloc]
 
-  val unsafe_mem : [> read ] t -> int -> bool
+  val unsafe_mem : [> read ] t -> int -> bool [@@zero_alloc]
 
   (** [clear t] empties the set. *)
   val clear : [> write ] t -> unit
@@ -61,9 +65,9 @@ module type S = sig
   (** [is_inter_empty a b = is_empty (inter_local a b)], but skips the intermediate
       allocation.
 
-      This function is optimized for small bitsets and minimizes branching.  For large
+      This function is optimized for small bitsets and minimizes branching. For large
       bitsets, note that the entire intersection is computed (no early exit for non-zero
-      intersection).  *)
+      intersection). *)
   val is_inter_empty : [> read ] t -> [> read ] t -> bool
 
   (** [diff a b] finds the elements in one but not the other bitset; it creates a new
@@ -90,11 +94,12 @@ module type S = sig
   (** returns the number of members -- values of [i] for which [mem t i] is true *)
   val num_members : [> read ] t -> int
 
-  (** returns the number of members -- values of [i] for which [mem t i] is true --
+  (** {v
+ returns the number of members -- values of [i] for which [mem t i] is true --
       within the range defined by start and end
 
       Raises if start is outside of [0, capacity t) or end is outside of [0, capacity t].
-  *)
+      v} *)
   val num_members_in_range
     :  [> read ] t
     -> start:int Maybe_bound.t
@@ -141,6 +146,12 @@ end
 module type S_plain = sig
   type t [@@deriving compare ~localize, equal ~localize]
 
+  module Stable : sig
+    module V1 : sig
+      type nonrec t = t [@@deriving bin_io]
+    end
+  end
+
   include S with type 'perms t := t
 
   module As_bit_array : sig
@@ -150,6 +161,12 @@ end
 
 module type S_permissioned = sig
   type -'perms t [@@deriving compare ~localize, equal ~localize]
+
+  module Stable : sig
+    module V1 : sig
+      type nonrec -'perms t = 'perms t [@@deriving bin_io]
+    end
+  end
 
   include S with type 'perms t := 'perms t
 

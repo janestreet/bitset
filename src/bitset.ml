@@ -38,7 +38,13 @@ module type S_permissioned = Bitset_intf.S_permissioned
    It is invariant that every bit in the final word of [t.bytes], not selected by
    [last_word_bitmask], is 0. *)
 
-type t = Bytes.t
+module Stable = struct
+  module V1 = struct
+    type t = Bytes.Stable.V1.t [@@deriving bin_io]
+  end
+end
+
+include Stable.V1
 
 (* The byte offset of where the bitset data itself lives in the [Bytes.t] *)
 let start_of_data = 8
@@ -112,7 +118,7 @@ module Masked : sig
      officially part of the bitset. You probably want to use [unsafe_set] to mutate the
      bitset, as it will automatically mask out those invalid bits on the last
      iteration. *)
-  val for_loop_end : Bounds.t -> int
+  val for_loop_end : Bounds.t -> int [@@zero_alloc]
 
   (* Indexing out of bounds is undefined behavior. Setting into the last word
      (the one at index [complete_words]) automatically masks. *)
@@ -446,19 +452,20 @@ module T = struct
     !r = 0L
   ;;
 
-  let num_members t =
-    let count = ref 0 in
+  let[@zero_alloc] num_members t =
+    let count = I64.Ref.create_local 0L in
+    let open I64.Ref.O in
     let%tydi { complete_words; last_word_bitmask } = bounds t in
     for word_index = 0 to complete_words - 1 do
       let byte_index = byte_index_of_word_index ~word_index in
       let v = Direct.unsafe_get_64 t ~byte_index in
-      count := !count + I64.popcount v
+      count := I64.O.(!count + I64.popcount v)
     done;
     let word_index = complete_words in
     let byte_index = byte_index_of_word_index ~word_index in
     let v = Direct.unsafe_get_64 t ~byte_index in
     let v = I64.(v land last_word_bitmask) in
-    !count + I64.popcount v
+    I64.O.(!count + I64.popcount v) |> I64.to_int_trunc
   ;;
 
   (* A mask where bit b, where bit indices are in [0, 32), is set iff b < i % 32.
@@ -528,7 +535,10 @@ module T = struct
     while !start_i < end_excl do
       let start_word_end = ((!start_i / 32) + 1) * 32 in
       let end_i = Int.min start_word_end end_excl in
-      count := !count + num_members_in_word_range t ~start_incl:!start_i ~end_excl:end_i;
+      count
+      := !count
+         + (num_members_in_word_range t ~start_incl:!start_i ~end_excl:end_i
+            |> I32.to_int_trunc);
       start_i := start_word_end
     done;
     !count
@@ -697,7 +707,10 @@ module T = struct
       let w = Direct.unsafe_get_64 t ~byte_index in
       let w = ref (I64.to_int64 w) in
       while Int64.(!w <> 0L) do
-        let wi = Ocaml_intrinsics_kernel.Int64.count_trailing_zeros_nonzero_arg !w in
+        let wi =
+          Ocaml_intrinsics_kernel.Int64.count_trailing_zeros_nonzero_arg !w
+          |> Int64.to_int_trunc
+        in
         f (bit_index + wi);
         w := Int64.(!w land lnot (one lsl wi))
       done
@@ -714,7 +727,7 @@ module T = struct
       then first_member_loop bytes bounds ~for_loop_end ~word_index:(word_index + 1)
       else (
         let bit_index = bit_index_of_word_index ~word_index in
-        Some (I64.ctz w + bit_index)))
+        Some ((I64.ctz w |> I64.to_int_trunc) + bit_index)))
   ;;
 
   let first_member t =
@@ -814,8 +827,13 @@ end
 include T
 
 module Permissioned = struct
-  type nonrec -'perms t = t [@@deriving equal ~localize, compare ~localize]
+  module Stable = struct
+    module V1 = struct
+      type nonrec -'perms t = t [@@deriving equal ~localize, compare ~localize, bin_io]
+    end
+  end
 
+  include Stable.V1
   include T
 
   module As_bit_array = struct
