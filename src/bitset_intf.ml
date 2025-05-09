@@ -112,6 +112,10 @@ module type S = sig
   (** [iter t ~f] calls [f] for all elements in set [t] *)
   val iter_set : [> read ] t -> f:(int -> unit) -> unit
 
+  (** [fold_set_local t ~init ~f] returns [f] folded over all the elements in set [t] *)
+  val fold_set_local : [> read ] t -> init:'acc -> f:('acc -> int -> 'acc) -> 'acc
+  [@@zero_alloc]
+
   (** [grow t ~new_len] creates a new set from [t] with capacity [new_len]. *)
   val grow : [> read ] t -> new_len:int -> [< read_write ] t
 
@@ -144,11 +148,11 @@ module type S = sig
 end
 
 module type S_plain = sig
-  type t [@@deriving compare ~localize, equal ~localize]
+  type t [@@deriving bin_io, compare ~localize, equal ~localize]
 
   module Stable : sig
     module V1 : sig
-      type nonrec t = t [@@deriving bin_io]
+      type nonrec t = t [@@deriving bin_io, stable_witness]
     end
   end
 

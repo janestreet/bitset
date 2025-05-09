@@ -40,7 +40,12 @@ module type S_permissioned = Bitset_intf.S_permissioned
 
 module Stable = struct
   module V1 = struct
-    type t = Bytes.Stable.V1.t [@@deriving bin_io]
+    type t = Bytes.Stable.V1.t [@@deriving bin_io, stable_witness]
+
+    let%expect_test _ =
+      Core.print_endline [%bin_digest: t];
+      [%expect {| 06c5811b990697b0a0c71e285a10e7d4 |}]
+    ;;
   end
 end
 
@@ -715,6 +720,41 @@ module T = struct
         w := Int64.(!w land lnot (one lsl wi))
       done
     done
+  ;;
+
+  let[@zero_alloc] rec fold_set_loop_this_word t acc ~f ~w ~bit_index =
+    if I64.(w = 0L)
+    then acc
+    else (
+      let wi = I64.ctz w |> I64.to_int_trunc in
+      fold_set_loop_this_word
+        t
+        ((f [@zero_alloc assume]) acc (bit_index + wi))
+        ~f
+        ~w:I64.(w land lnot (1L lsl wi))
+        ~bit_index)
+  ;;
+
+  let[@zero_alloc] rec fold_set_loop_all_words t acc ~f ~word_index ~for_loop_end =
+    if word_index > for_loop_end
+    then acc
+    else (
+      let byte_index = byte_index_of_word_index ~word_index in
+      let bit_index = bit_index_of_word_index ~word_index in
+      let w = Direct.unsafe_get_64 t ~byte_index in
+      let acc = fold_set_loop_this_word t acc ~f ~w ~bit_index in
+      fold_set_loop_all_words
+        t
+        acc
+        ~f
+        ~word_index:(word_index + 1)
+        ~for_loop_end [@nontail])
+  ;;
+
+  let fold_set_local t ~init ~f =
+    let bounds = bounds t in
+    let for_loop_end = Masked.for_loop_end bounds in
+    fold_set_loop_all_words t init ~f ~word_index:0 ~for_loop_end
   ;;
 
   let rec first_member_loop bytes (bounds : Bounds.t) ~for_loop_end ~word_index =
