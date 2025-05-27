@@ -156,7 +156,7 @@ module type S = sig
 end
 
 module type S_plain = sig
-  type t [@@deriving bin_io, compare ~localize, equal ~localize]
+  type t [@@deriving bin_io, globalize, compare ~localize, equal ~localize]
 
   module Stable : sig
     module V1 : sig
@@ -172,7 +172,7 @@ module type S_plain = sig
 end
 
 module type S_permissioned = sig
-  type -'perms t [@@deriving compare ~localize, equal ~localize]
+  type -'perms t [@@deriving globalize, compare ~localize, equal ~localize]
 
   module Stable : sig
     module V1 : sig

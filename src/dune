@@ -1,7 +1,7 @@
 (library
  (public_name bitset)
  (name bitset)
- (libraries core ocaml_intrinsics_kernel)
+ (libraries core ocaml_intrinsics_kernel unboxed)
  (preprocess
   (pps ppx_jane)))
 

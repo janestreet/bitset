@@ -1,8 +1,7 @@
 [@@@ocaml.flambda_o3]
 
 open! Core
-module I64 = Unboxed.I64
-module I32 = Unboxed.I32
+open Unboxed
 
 module type S_plain = Bitset_intf.S_plain
 module type S_permissioned = Bitset_intf.S_permissioned
@@ -23,7 +22,7 @@ module type S_permissioned = Bitset_intf.S_permissioned
 
 module Stable = struct
   module V1 = struct
-    type t = Bytes.Stable.V1.t [@@deriving bin_io, stable_witness]
+    type t = Bytes.Stable.V1.t [@@deriving bin_io, globalize, stable_witness]
 
     let%expect_test _ =
       Core.print_endline [%bin_digest: t];
@@ -855,7 +854,8 @@ include T
 module Permissioned = struct
   module Stable = struct
     module V1 = struct
-      type nonrec -'perms t = t [@@deriving equal ~localize, compare ~localize, bin_io]
+      type nonrec -'perms t = t
+      [@@deriving globalize, equal ~localize, compare ~localize, bin_io]
     end
   end
 
