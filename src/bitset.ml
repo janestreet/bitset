@@ -38,14 +38,32 @@ let start_of_data = 8
 
 (* Direct access to the words of the underlying [Bytes.t], without doing anything to
    handle the odd bits at the end. *)
-module Direct : sig
+module Direct : sig @@ portable
   val unsafe_get_64 : local_ Bytes.t -> byte_index:int -> I64.t
   val unsafe_set_64 : local_ Bytes.t -> byte_index:int -> I64.t -> unit
   val unsafe_get_32 : local_ Bytes.t -> byte_index:int -> I32.t
 end = struct
-  external unsafe_get_64 : local_ Bytes.t -> int -> int64 = "%caml_bytes_get64u"
-  external unsafe_set_64 : local_ Bytes.t -> int -> int64 -> unit = "%caml_bytes_set64u"
-  external unsafe_get_32 : local_ Bytes.t -> int -> int32 = "%caml_bytes_get32u"
+  external unsafe_get_64
+    :  local_ Bytes.t
+    -> int
+    -> int64
+    @@ portable
+    = "%caml_bytes_get64u"
+
+  external unsafe_set_64
+    :  local_ Bytes.t
+    -> int
+    -> int64
+    -> unit
+    @@ portable
+    = "%caml_bytes_set64u"
+
+  external unsafe_get_32
+    :  local_ Bytes.t
+    -> int
+    -> int32
+    @@ portable
+    = "%caml_bytes_get32u"
 
   (* These look like they allocate, but thanks to some compiler magic they actually
      don't. *)
@@ -55,11 +73,11 @@ end = struct
   ;;
 
   let[@inline] unsafe_set_64 bytes ~byte_index x =
-    unsafe_set_64 bytes (byte_index + start_of_data) (I64.to_int64 x)
+    unsafe_set_64 bytes (byte_index + start_of_data) (I64.box x)
   ;;
 
   let[@inline] unsafe_get_32 bytes ~byte_index =
-    I32.of_int32 (unsafe_get_32 bytes (byte_index + start_of_data))
+    I32.unbox (unsafe_get_32 bytes (byte_index + start_of_data))
   ;;
 end
 
@@ -99,7 +117,7 @@ let[@inline] bounds t : Bounds.t =
   }
 ;;
 
-module Masked : sig
+module Masked : sig @@ portable
   (* The inclusive end bound of a for loop through each masked 64-bit word in the bitset.
 
      The last iteration of that for loop points to a word with only some bits as
@@ -220,7 +238,7 @@ let[@cold] [@zero_alloc assume] invariant t =
   in
   (* don't allocate the Int64.t unless the check fails *)
   if I64.(last_word_bits_outside_bitmask <> #0L)
-  then [%test_result: Int64.t] I64.(to_int64 last_word_bits_outside_bitmask) ~expect:0L
+  then [%test_result: Int64.t] I64.(box last_word_bits_outside_bitmask) ~expect:0L
 ;;
 
 let[@inline] invariant_in_test t = if am_running_test then invariant t
@@ -693,13 +711,13 @@ module T = struct
       let byte_index = byte_index_of_word_index ~word_index in
       let bit_index = bit_index_of_word_index ~word_index in
       let w = Direct.unsafe_get_64 t ~byte_index in
-      let w = ref (I64.to_int64 w) in
+      let w = ref (I64.box w) in
       while Int64.(!w <> 0L) do
         let wi =
           Ocaml_intrinsics_kernel.Int64.count_trailing_zeros_nonzero_arg !w
           |> Int64.to_int_trunc
         in
-        f (bit_index + wi);
+        (f [@zero_alloc assume]) (bit_index + wi);
         w := Int64.(!w land lnot (one lsl wi))
       done
     done
@@ -820,12 +838,14 @@ module T = struct
 
   let quickcheck_generator =
     let module G = Quickcheck.Generator in
-    let open G.Let_syntax in
+    let open Base_quickcheck.Generator.Let_syntax [@mode portable] in
     let%bind len = G.small_non_negative_int in
     let%map vals =
       if len = 0
-      then G.return []
-      else List.quickcheck_generator (Int.gen_incl 0 (len - 1))
+      then
+        (* [return []] doesn't work without [@ cocontended]. *)
+        return () >>| fun () -> []
+      else (List.quickcheck_generator [@mode portable]) (Int.gen_incl 0 (len - 1))
     in
     let bitset = create ~len in
     List.iter vals ~f:(fun x -> add bitset x);

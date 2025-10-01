@@ -1,3 +1,5 @@
+@@ portable
+
 (** Bitset implementation backed by a standard OCaml string. *)
 
 module type S_plain = Bitset_intf.S_plain
