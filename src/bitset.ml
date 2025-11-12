@@ -834,7 +834,7 @@ module T = struct
 
   let sexp_of_t t = Sexp.Atom (to_string t)
   let t_of_sexp sexp = of_string ([%of_sexp: string] sexp)
-  let capacity = bit_capacity
+  let capacity t = bit_capacity t
 
   let quickcheck_generator =
     let module G = Quickcheck.Generator in

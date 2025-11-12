@@ -9,8 +9,8 @@ module type S = sig @@ portable
       set is initially empty, and does not grow. *)
   val create : len:int -> [< read_write ] t
 
-  val create_local : len:int -> local_ [< read_write ] t
-  val capacity : local_ [> read ] t -> int
+  val create_local : len:int -> local_ [< read_write ] t [@@zero_alloc]
+  val capacity : local_ [> read ] t -> int [@@zero_alloc]
 
   (** [is_empty t] returns [true] iff [mem t i] returns false on every [i] *)
   val is_empty : local_ [> read ] t -> bool
@@ -20,18 +20,19 @@ module type S = sig @@ portable
   val add : local_ [> write ] t -> int -> unit
   [@@zero_alloc]
 
-  val unsafe_add : local_ [> write ] t -> int -> unit
+  val unsafe_add : local_ [> write ] t -> int -> unit [@@zero_alloc]
 
   (** [remove t i] removes [i] from set. *)
   val remove : local_ [> write ] t -> int -> unit
   [@@zero_alloc]
 
-  val unsafe_remove : local_ [> write ] t -> int -> unit
+  val unsafe_remove : local_ [> write ] t -> int -> unit [@@zero_alloc]
 
   (** [assign t i x = if x then add t i else remove t i], but branch-free. *)
   val assign : local_ [> write ] t -> int -> bool -> unit
+  [@@zero_alloc]
 
-  val unsafe_assign : local_ [> write ] t -> int -> bool -> unit
+  val unsafe_assign : local_ [> write ] t -> int -> bool -> unit [@@zero_alloc]
 
   (** [mem t i] returns [true] iff [i] is in [t]. *)
   val mem : local_ [> read ] t -> int -> bool
