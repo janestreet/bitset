@@ -65,8 +65,7 @@ end = struct
     @@ portable
     = "%caml_bytes_get32u"
 
-  (* These look like they allocate, but thanks to some compiler magic they actually
-     don't. *)
+  (* These look like they allocate, but thanks to some compiler magic they actually don't. *)
 
   let[@inline] unsafe_get_64 bytes ~byte_index =
     I64.of_int64 (unsafe_get_64 bytes (byte_index + start_of_data))
@@ -122,12 +121,11 @@ module Masked : sig @@ portable
 
      The last iteration of that for loop points to a word with only some bits as
      officially part of the bitset. You probably want to use [unsafe_set] to mutate the
-     bitset, as it will automatically mask out those invalid bits on the last
-     iteration. *)
+     bitset, as it will automatically mask out those invalid bits on the last iteration. *)
   val for_loop_end : local_ Bounds.t -> int [@@zero_alloc]
 
-  (* Indexing out of bounds is undefined behavior. Setting into the last word
-     (the one at index [complete_words]) automatically masks. *)
+  (* Indexing out of bounds is undefined behavior. Setting into the last word (the one at
+     index [complete_words]) automatically masks. *)
   val unsafe_set : local_ Bytes.t -> local_ Bounds.t -> word_index:int -> I64.t -> unit
 end = struct
   (* For loops through masked values need to include one extra word at the end, to handle
@@ -357,8 +355,7 @@ module T = struct
       let dst_word = Direct.unsafe_get_64 dst ~byte_index in
       let v = I64.(src_word land dst_word) in
       (* It's safe to use a direct [set] here because [land] won't set any bits that
-         weren't already set, and everything after the end of the valid set of bits
-         is 0. *)
+         weren't already set, and everything after the end of the valid set of bits is 0. *)
       Direct.unsafe_set_64 dst ~byte_index v
     done;
     for word_index = both_end + 1 to dst_end do
@@ -378,8 +375,7 @@ module T = struct
       let dst_word = Direct.unsafe_get_64 dst ~byte_index in
       let v = I64.(dst_word land lnot src_word) in
       (* It's safe to use a direct [set] here because [land] won't set any bits that
-         weren't already set, and everything after the end of the valid set of bits
-         is 0. *)
+         weren't already set, and everything after the end of the valid set of bits is 0. *)
       Direct.unsafe_set_64 dst ~byte_index v
     done;
     invariant_in_test dst
@@ -406,7 +402,7 @@ module T = struct
   let rec is_subset_loop bytes1 bounds1 bytes2 bounds2 ~for_loop_end ~word_index =
     let word1 = read_word_for_eq bytes1 bounds1 ~word_index in
     let word2 = read_word_for_eq bytes2 bounds2 ~word_index in
-    (* A subset_of B  <->  A intersect B = A *)
+    (* A subset_of B <-> A intersect B = A *)
     let word_is_subset = I64.(word1 land lnot word2 = #0L) in
     if word_index = for_loop_end
     then word_is_subset
@@ -439,7 +435,7 @@ module T = struct
     is_empty_loop t ~for_loop_end ~word_index:0 [@nontail]
   ;;
 
-  (* We optimize for small bitsets and minimize branching.  For large bitsets we could
+  (* We optimize for small bitsets and minimize branching. For large bitsets we could
      consider early exit when non-zero intersection is detected. *)
   let[@zero_alloc] is_inter_empty a b =
     let r = I64.Ref.create_local #0L in
@@ -474,7 +470,7 @@ module T = struct
     I64.O.(!count + I64.popcount v) |> I64.to_int_trunc
   ;;
 
-  (* A mask where bit b, where bit indices are in [0, 32), is set iff b < i % 32.
+  (*=A mask where bit b, where bit indices are in [0, 32), is set iff b < i % 32.
      When i % 32 = 0, returns a mask where all bits are set. *)
   let[@inline] bits_set_until i =
     (* [i land 31] is more efficient than [i % 32] for nonnegative i; [32-i] might be
@@ -483,7 +479,7 @@ module T = struct
     I32.( lsr ) #0xffff_ffffl i
   ;;
 
-  (* A mask where bit b, where bit indices are in [0, 32), is set iff b >= i % 32.
+  (*=A mask where bit b, where bit indices are in [0, 32), is set iff b >= i % 32.
      When i % 32 = 0, returns a mask where all bits are set. *)
   let[@inline] bits_set_from i =
     let i = i land 31 (* equivalent to [% 32] for non-negative values *) in
@@ -699,7 +695,7 @@ module T = struct
     dst
   ;;
 
-  (* When [t] is sparsely populated the below performs considerably better than the more
+  (*=When [t] is sparsely populated the below performs considerably better than the more
      straight-forward loop:
 
      {[ for i = 0 to capacity t do if unsafe_mem t i then f i done }]
