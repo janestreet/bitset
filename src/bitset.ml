@@ -884,3 +884,12 @@ module Permissioned = struct
     type nonrec 'rw t = t [@@deriving sexp]
   end
 end
+
+module Expert = struct
+  let[@inline] unsafe_to_bytes (t : t) : bytes = t
+
+  let[@inline] unsafe_of_bytes (bytes : bytes) : t =
+    invariant_in_test bytes;
+    bytes
+  ;;
+end
