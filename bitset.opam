@@ -18,7 +18,7 @@ depends: [
   "unboxed"
   "dune"                    {>= "3.17.0"}
 ]
-available: arch != "arm32" & arch != "x86_32"
+available: arch != "x86_32"
 synopsis: "A library for flat bitsets"
 description: "
  An efficient mutable bitset.
